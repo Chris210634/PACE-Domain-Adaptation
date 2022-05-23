@@ -77,3 +77,18 @@ Average prediction over 4 x 7 models.
 R->C, R->P, R->A, P->R, P->C, P->A, A->P, A->C, A->R, C->R, C->A, C->P, 
 85.58992147445679, 95.17909288406372, 90.19365310668945, 94.69818472862244, 82.97823667526245, 89.20478224754333, 94.00765895843506, 83.64261388778687, 94.35391426086426, 94.28505897521973, 90.7705008983612, 93.73732805252075, 
 ```
+
+## Additional Remarks
+
+For faster experimentation, we recommend decreasing the number of backbones in the ensemble. You can do this by editing this line:
+```python
+# (network, feature_size, batch_size, crop_size)
+networks = [('convnext_xlarge_384_in22ft1k', 2048, 12, 384),
+ ('convnext_xlarge_in22ft1k', 2048, 12, 224),
+ ('convnext_xlarge_in22k', 2048, 12, 224),
+ ('swin_large_patch4_window7_224', 1536, 12, 224),
+ ('swin_large_patch4_window7_224_in22k', 1536, 12, 224),
+ ('swin_large_patch4_window12_384', 1536, 12, 384),
+ ('swin_large_patch4_window12_384_in22k', 1536, 12, 384)]
+```
+The backbones with 384 input resolution are the most time consuming.
