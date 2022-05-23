@@ -1,0 +1,7 @@
+qsub -l gpus=1 -l gpu_c=6.0 -l h_rt=4:00:00 -N "run_office_home_0_shot_randaugment" -o "run_office_home_0_shot_randaugment.o" -j y -m bea -pe omp 4 run_office_home_0_shot_randaugment.sh
+qsub -l gpus=1 -l gpu_c=6.0 -l h_rt=4:00:00 -N "run_office_home_0_shot_perspective" -o "run_office_home_0_shot_perspective.o" -j y -m bea -pe omp 4 run_office_home_0_shot_perspective.sh
+qsub -l gpus=1 -l gpu_c=6.0 -l h_rt=4:00:00 -N "run_office_home_0_shot_none" -o "run_office_home_0_shot_none.o" -j y -m bea -pe omp 4 run_office_home_0_shot_none.sh
+qsub -l gpus=1 -l gpu_c=6.0 -l h_rt=4:00:00 -N "run_office_home_0_shot_grayscale" -o "run_office_home_0_shot_grayscale.o" -j y -m bea -pe omp 4 run_office_home_0_shot_grayscale.sh
+qsub -l gpus=1 -l gpu_c=6.0 -l h_rt=4:00:00 -N "run_office_home_0_shot_none_multi_1" -o "run_office_home_0_shot_none_multi_1.o" -j y -m bea -pe omp 4 run_office_home_0_shot_none_multi.sh
+qsub -l gpus=1 -l gpu_c=6.0 -l h_rt=4:00:00 -N "run_office_home_0_shot_none_multi_2" -o "run_office_home_0_shot_none_multi_2.o" -j y -m bea -pe omp 4 run_office_home_0_shot_none_multi.sh
+qsub -l gpus=1 -l gpu_c=6.0 -l h_rt=4:00:00 -N "run_office_home_0_shot_none_multi_3" -o "run_office_home_0_shot_none_multi_3.o" -j y -m bea -pe omp 4 run_office_home_0_shot_none_multi.sh
