@@ -1,5 +1,7 @@
 # PACE-Domain-Adaptation
 
+![](https://github.com/Chris210634/PACE-Domain-Adaptation/raw/main/main_illustration.png)
+
 ## Instructions
 
 ### Step 1: Download Data
