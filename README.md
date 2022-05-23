@@ -13,4 +13,5 @@ data/: This directory contains the text files for the data splits to reproduce o
 get_pre_trained_weights.py: Used to calculate the features for each backbone. The features will be written to the feature_weights folder.
 get_results.py: Trains a linear classifier for SSDA. Prints results. Saves results as a dictionary in *.dic
 get_results_UDA.py: Trains a linear classifier for UDA. Prints results. Saves results as a dictionary in *.dic
-get_results_large.py: 
+get_results_large.py: Assumes get_results.py has been run for each of the 4 augmentation settings. Reads in the results from *.dic and prints results for the large ensemble. This file takes under a minute to run.
+get_results_large_UDA.py: Assumes get_results_UDA.py has been run for each of the 4 augmentation settings. Reads in the results from *.dic and prints results for the large ensemble. This file takes under a minute to run.
