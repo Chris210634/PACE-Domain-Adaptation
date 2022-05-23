@@ -129,6 +129,5 @@ dmypy.json
 .pyre/
 
 *.dic
-feature_weights/*
 logs*/*
 copy_domainnet_data.sh
