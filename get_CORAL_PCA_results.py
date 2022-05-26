@@ -24,11 +24,6 @@ parser.add_argument('--augmentation', type=str, default='none', help='')
 parser.add_argument('--dataset', type=str, default='multi', help='')
 parser.add_argument('--shots', type=int, default=3, help='')
 
-parser.add_argument('--save_weights', action='store_true', default=False,
-                    help='save classifier weights or not')
-parser.add_argument('--PADD', action='store_true', default=False,
-                    help='Project away domain direction(PADD) instead of using CORAL')
-
 # Hyperparameters
 parser.add_argument('--T', type=int, default=30, help='')
 parser.add_argument('--eta0', type=float, default=40, help='')
@@ -42,6 +37,7 @@ parser.add_argument('--taus1T', type=float, default=0.8, help='')
 parser.add_argument('--tautu110', type=float, default=0.9, help='')
 parser.add_argument('--tautu1120', type=float, default=0.8, help='')
 parser.add_argument('--tautu2130', type=float, default=0.7, help='')
+parser.add_argument('--k', type=int, default=0, help='')
 args = parser.parse_args()
 print(args)
 
@@ -69,10 +65,30 @@ def make_dataset_fromlist(image_list):
     image_index = image_index[selected_list]
     return image_index, label_list
 
-def coral(source_features, val_target_features, unlabeled_target_features, labeled_target_features):
+def coral(source_features, val_target_features, unlabeled_target_features, labeled_target_features, k, save_path):
     x_s = torch.cat((source_features.to(device), labeled_target_features.to(device)))
     x_t = unlabeled_target_features.to(device)
     x_tv = val_target_features.to(device)
+    
+    # PCA
+    x = torch.cat((x_s, x_t))
+    x = x - x.mean(0)
+    
+    # below line takes forever, save it
+    if os.path.isfile(save_path):
+        print('Using saved SVD decomposition')
+        U, S, Vh = torch.load(save_path)
+        U = U.to(device)
+        S = S.to(device)
+    else:
+        U, S, Vh = torch.linalg.svd(x, full_matrices=False)
+        torch.save((U, S, Vh), save_path)
+    
+    x = U[:,:k] @ torch.diag(S[:k])
+    x_s = x[:x_s.shape[0]]
+    x_t = x[x_s.shape[0]:]
+    x_tv = x_tv[:,:k] # NOT GOOD, but I don't need validation for this experiment
+    
     x_s_n = x_s - x_s.mean(0) # centered source
     x_t_n = x_t - x_t.mean(0) # centered target
     x_tv = x_tv - x_t.mean(0)
@@ -92,45 +108,6 @@ def coral(source_features, val_target_features, unlabeled_target_features, label
     x_t = x_s[source_features.shape[0]:] # target
     x_s = x_s[:source_features.shape[0]] # source
     
-    # target unlabeled, target labeled, source, target validation
-    return x_tu, x_t, x_s, x_tv
-
-def padd(source_features, val_target_features, unlabeled_target_features, labeled_target_features, iters=30):
-    def project_onto_vector(a, b):
-        bu = F.normalize(b)  # project onto b
-        a_n = F.normalize(a) 
-        cos_theta = torch.matmul(a_n, bu.T) # cos theta
-        a_norm = a.square().sum(-1).sqrt() # norm
-        return torch.unsqueeze(cos_theta.view(-1) * a_norm, 0).T * bu
-    x_s = source_features.to(device)
-    x_tv = val_target_features.to(device)
-    x_tu = unlabeled_target_features.to(device)
-    x_t = labeled_target_features.to(device)
-    x_labeled = torch.cat((x_s, x_t))
-    
-    lam_l1=0.0002
-    for _ in range(iters):
-        # Train binary linear discriminator between source and target domains
-        D = nn.Linear(inc, 1, bias=False).to(device)
-        D.to(device)
-        optimizer_d = optim.SGD(D.parameters(), lr=4.0, momentum=0.9, weight_decay=0.000, nesterov=True)
-        for _ in range(200):
-            y_hat_s = torch.sigmoid(D(x_labeled))  # classify as zero
-            y_hat_tu = torch.sigmoid(D(x_tu))# classify as one
-
-            optimizer_d.zero_grad()
-            loss = 0.5*F.binary_cross_entropy(y_hat_s.view(-1), torch.zeros_like(y_hat_s.view(-1)))
-            loss += 0.5*F.binary_cross_entropy(y_hat_tu.view(-1), torch.ones_like(y_hat_tu.view(-1)))
-            loss += lam_l1*torch.abs(D.weight.view(-1)).sum()
-            loss.backward()
-            optimizer_d.step()
-
-        x_labeled = F.normalize(x_labeled - project_onto_vector(x_labeled, D.weight.detach()))
-        x_tu = F.normalize(x_tu - project_onto_vector(x_tu, D.weight.detach()))
-        x_tv = F.normalize(x_tv - project_onto_vector(x_tv, D.weight.detach()))
-
-    x_t = x_labeled[source_features.shape[0]:] # target
-    x_s = x_labeled[:source_features.shape[0]] # source
     # target unlabeled, target labeled, source, target validation
     return x_tu, x_t, x_s, x_tv
 
@@ -247,21 +224,58 @@ def get_features(augmentation, network, dataset, source, target, num):
     return source_features, source_labels, val_target_features, val_target_labels, unlabeled_target_features, unlabeled_target_labels, labeled_target_features, labeled_target_labels
     
 
-def get_results(network, inc, source, target, dataset, num=3, device='cuda'):
+def get_results(source, target, dataset, num=3, device='cuda'):
     # list of tuples (target_acc, source_acc, val_acc, unlabeled_preds)
     # saved at each stage
     return_list = []
     
     # Get features
-    source_features, source_labels, val_target_features, val_target_labels, unlabeled_target_features, unlabeled_target_labels, labeled_target_features, labeled_target_labels = get_features(augmentation, network, dataset, source, target, num)
+    # source_features, source_labels, val_target_features, val_target_labels, unlabeled_target_features, unlabeled_target_labels, labeled_target_features, labeled_target_labels = get_features(augmentation, network, dataset, source, target, num)
 
-    if not args.PADD:
-        print('CORAL alignment ...')
-        x_tu, x_t, x_s, x_tv = coral(source_features, val_target_features, unlabeled_target_features, labeled_target_features)
-    else:
-        print('PADD alignment ...')
-        x_tu, x_t, x_s, x_tv = padd(source_features, val_target_features, unlabeled_target_features, labeled_target_features)
+    source_features_master = torch.tensor([])
+    source_labels_master = torch.tensor([])
+    val_target_features_master = torch.tensor([])
+    val_target_labels_master = torch.tensor([])
+    unlabeled_target_features_master = torch.tensor([])
+    unlabeled_target_labels_master = torch.tensor([])
+    labeled_target_features_master = torch.tensor([])
+    labeled_target_labels_master = torch.tensor([])
 
+    for network,_,_,_ in networks:
+        source_features, source_labels, val_target_features, val_target_labels, unlabeled_target_features, unlabeled_target_labels, labeled_target_features, labeled_target_labels = get_features(augmentation, network, dataset, source, target, num)
+        if len(source_labels_master) > 0:
+            assert (source_labels_master - source_labels).sum() == 0
+        else:
+            source_labels_master = source_labels
+        if len(val_target_labels_master) > 0:
+            assert (val_target_labels_master - val_target_labels).sum() == 0
+        else:
+            val_target_labels_master = val_target_labels
+        if len(unlabeled_target_labels_master) > 0:
+            assert (unlabeled_target_labels_master - unlabeled_target_labels).sum() == 0
+        else:
+            unlabeled_target_labels_master = unlabeled_target_labels
+        if len(labeled_target_labels_master) > 0:
+            assert (labeled_target_labels_master - labeled_target_labels).sum() == 0
+        else:
+            labeled_target_labels_master = labeled_target_labels
+
+        source_features_master = torch.cat((source_features_master, source_features), dim=1)
+        val_target_features_master = torch.cat((val_target_features_master, val_target_features), dim=1)
+        unlabeled_target_features_master = torch.cat((unlabeled_target_features_master, unlabeled_target_features), dim=1)
+        labeled_target_features_master = torch.cat((labeled_target_features_master, labeled_target_features), dim=1)
+
+    source_features = source_features_master
+    val_target_features = val_target_features_master
+    unlabeled_target_features = unlabeled_target_features_master
+    labeled_target_features = labeled_target_features_master
+
+    print('CORAL alignment ...')
+    save_path = 'SVD_{}_{}_{}_{}.pt'.format(dataset, source, target, num)
+    x_tu, x_t, x_s, x_tv = coral(source_features, val_target_features, unlabeled_target_features, labeled_target_features, k, save_path)
+
+    inc = k
+    
     y_s = source_labels.long().to(device)
     y_t = labeled_target_labels.long().to(device)
     y_tu = unlabeled_target_labels.long().to(device)
@@ -338,6 +352,7 @@ def get_results(network, inc, source, target, dataset, num=3, device='cuda'):
 dataset = args.dataset
 augmentation = args.augmentation
 shots = args.shots
+k = args.k
 
 # (network, feature_size, batch_size, crop_size)
 networks = [('convnext_xlarge_384_in22ft1k', 2048, 12, 384),
@@ -373,122 +388,20 @@ else:
                    ('real', 'sketch'),
                    ('painting','real')]
     num_classes = 126
-
-dic = {}    # stores predictions
-dic_D = {}  # stores classifer weights 
-for network, inc, bs, cs in networks:
-    print(network)
-    for source, target in domain_pairs:
-        rl, D, x_tu, x_tv = get_results( network, inc, source, target, dataset, num=args.shots, device=device)
-        dic[(network, source, target)] = rl
-        dic_D[(network, source, target)] = (D, x_tu, x_tv)
-    print()
-
-# save results and classifier weights
-if args.save_weights:
-    torch.save(dic, '{}_{}_pseudo_labeling_results_{}.dic'.format(dataset, shots, augmentation))
-    torch.save(dic_D, '{}_{}_pseudo_labeling_classifiers_{}.dic'.format(dataset, shots, augmentation))
-
-print('(augmentation, shots): ',(augmentation, shots))
-print('================================================================================')
-print('Results for each ensemble member')
-print('================================================================================')
-print('Net', end = ', ')
-for source, target in domain_pairs:
-    print('{}->{}'.format(source[0], target[0]), end = ', ')
-print()
-
-for network, inc, bs, cs in networks:
-    print(network, end = ', ')
-    for source, target in domain_pairs:
-        target_acc, source_acc, val_acc, _, _ = dic[(network, source, target)][-1]
-        print(target_acc, end = ', ')
-    print()
-
-print()
-print('================================================================================')
-print('Simple Majority vote')
-print('================================================================================')
-for source, target in domain_pairs:
-    print('{}->{}'.format(source[0], target[0]), end = ', ')
-print()
-
-for source, target in domain_pairs:
-    unlabeled_target_labels = get_unlabeled_target_labels(dataset, target, num=shots)
     
-    ################ Find best models by validation acc ######################
-    # This step may not be necessary, this only makes a difference if the maority vote is tied. 
-    # I want to be consciously making a choice instead of letting argmax choose whichever 
-    # model came first in the case of a tie.
-    # for source, target in domain_pairs:
-    val_accs = []
-    for network, _, _, _ in networks:
-        val_acc = dic[(network, source, target)][-1][2] # [-1] means last result tuple, [2] is the index of validation acc
-        val_accs.append(val_acc)
-            
-    model_id_low_to_high = np.argsort(val_accs) # index of network by low -> high confidence
-    ###########################################################################
-    
-    votes = []
-    for net_id in list(model_id_low_to_high)[::-1]:
-        network, inc, bs, cs = networks[net_id]
-        target_acc, source_acc, val_acc, unlabeled_preds, _ = dic[(network, source, target)][-1]
-        votes.append(unlabeled_preds)
-        
-    ### MAJORITY VOTE ###
-    S = torch.zeros_like(F.one_hot(votes[0], num_classes=num_classes))
-    for vote in votes:
-        S = S + F.one_hot(vote, num_classes=num_classes)
-    num_votes, prediction = torch.max(S,1)
-
-    acc = ((prediction == unlabeled_target_labels).sum()/len(prediction)).item()*100.
-    
-    print(acc, end = ', ')
-
+dic = {}
+for source, target in domain_pairs:
+    rl, D, x_tu, x_tv = get_results( source, target, dataset, num=args.shots, device=device)
+    dic[(source, target)] = rl
 print()
-print()
-print('================================================================================')
-print('Simple Average (Usually better)')
-print('================================================================================')
+
 for source, target in domain_pairs:
     print('{}->{}'.format(source[0], target[0]), end = ', ')
 print()
 
+print('k={}'.format(k), end = ', ')
 for source, target in domain_pairs:
-    unlabeled_target_labels = get_unlabeled_target_labels(dataset, target, num=shots)
-    y_hat_sum = torch.zeros((unlabeled_target_labels.shape[0], num_classes)).to(device)
-    for network, inc, bs, cs in networks:
-        D, x_tu, x_tv = dic_D[(network, source, target)] # retrieve classifier weights
-        D = D.to(device)
-        x_tu = x_tu.to(device)
-        y_hat = F.softmax(D(x_tu), -1) # calculate prediction
-        y_hat_sum = y_hat_sum + y_hat  # add prediction to sum
-    _, unlabeled_preds = torch.max(y_hat_sum, -1) # max average prediction of ensemble members
-    prediction = unlabeled_preds.cpu()
-    acc = ((prediction == unlabeled_target_labels).sum()/len(prediction)).item()*100.
-    print(acc, end = ', ')
-print()
+    target_acc, source_acc, val_acc, _, _ = dic[(source, target)][-1]
+    print(target_acc, end = ', ')
 print()
 
-print('================================================================================')
-print('Simple Average on Target validation set')
-print('================================================================================')
-for source, target in domain_pairs:
-    print('{}->{}'.format(source[0], target[0]), end = ', ')
-print()
-
-for source, target in domain_pairs:
-    target_labels = get_validation_target_labels(dataset, target, num=shots)
-    y_hat_sum = torch.zeros((target_labels.shape[0], num_classes)).to(device)
-    for network, inc, bs, cs in networks:
-        D, x_tu, x_tv = dic_D[(network, source, target)] # retrieve classifier weights
-        D = D.to(device)
-        x_tv = x_tv.to(device)
-        y_hat = F.softmax(D(x_tv), -1) # calculate prediction
-        y_hat_sum = y_hat_sum + y_hat  # add prediction to sum
-    _, unlabeled_preds = torch.max(y_hat_sum, -1) # max average prediction of ensemble members
-    prediction = unlabeled_preds.cpu()
-    acc = ((prediction == target_labels).sum()/len(prediction)).item()*100.
-    print(acc, end = ', ')
-print()
-print()
